@@ -4,6 +4,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
+import json
 
 load_dotenv()
 
@@ -160,21 +161,49 @@ def get_search_results_with_fallback(search_items, search_term):
     print(f"Processed {len(results_list)} search results")
     return results_list
 
+def generate_rag_response(search_results, search_query, search_term):
+    final_prompt = (
+        f"The user will provide a dictionary of search results in JSON format for the search query '{search_term}'. "
+        f"Based on the search results provided by the user, provide a detailed response to this query: **'{search_query}'**. "
+        f"Make sure to cite all the sources at the end of your answer."
+    )
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": final_prompt},
+                {"role": "user", "content": json.dumps(search_results, indent=4)}  
+            ],
+            temperature=0  
+        )
+        
+        summary = response.choices[0].message.content
+        print("Generated RAG Response:")
+        print(summary)
+        return summary
+    
+    except Exception as e:
+        print(f"An error occurred while generating the RAG response: {e}")
+        return None
+
+
 # Main Program Execution
 if __name__ == "__main__":
-    search_query = "Tata Motors latest financial report of the year 2024, please give me the latest quarter of 2024"  # Example search query
+    search_query = "Tata Motors latest financial report of the year 2024, please give me the latest quarter of 2024"
     print("Starting program execution...")
-
+ 
     search_items , search_term = perform_search(search_query)
 
     if search_items:
         results = get_search_results_with_fallback(search_items, search_term)
 
-        for result in results:
-            print(f"Search order: {result['order']}")
-            print(f"Link: {result['link']}")
-            print(f"Snippet: {result['title']}")
-            print(f"Summary: {result['Summary']}")
-            print('-' * 80)
+        if results:
+            rag_response = generate_rag_response(results, search_query, search_term)
+
+            with open("rag_response.txt", "w") as f:
+                f.write(rag_response)
+        else:
+            print("No search results to process.")
     else:
-        print("No search results to process.")
+        print("No search results found.")
