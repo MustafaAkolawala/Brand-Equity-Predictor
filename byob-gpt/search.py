@@ -5,11 +5,13 @@ import os
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 import json
+import re
 
 load_dotenv()
 
 client = OpenAI()
 
+# Configuration
 MAX_CHUNK_SIZE = 2000  
 MAX_CONTENT_LENGTH = 50000  
 SEARCH_DEPTH = 5  
@@ -25,7 +27,7 @@ def refine_query_with_gpt(search_query):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Provide a google search term based on search query provided below in 3-4 words"},
+                {"role": "system", "content": "Provide a Google search term based on search query in 3-4 words."},
                 {"role": "user", "content": search_query}
             ]
         )
@@ -36,30 +38,22 @@ def refine_query_with_gpt(search_query):
         print(f"Error refining query: {e}")
         return search_query  
 
-def perform_search(query):
-    print(f"Performing search for query: {query}")
-    refined_query = refine_query_with_gpt(query)
+def perform_search(company_name, parameter):
+    query = f"{company_name} {parameter} global after:2025-01-01 site:{company_name}.com OR site:statista.com OR site:investopedia.com OR site:marketwatch.com"
 
     try:
-        res = service.cse().list(
-            q=refined_query,
-            cx=SEARCH_ENGINE_ID,
-            num=SEARCH_DEPTH  
-        ).execute()
-
+        res = service.cse().list(q=query, cx=SEARCH_ENGINE_ID, num=SEARCH_DEPTH).execute()
         items = res.get("items", [])
         if not items:
             print("No results found")
             return None
-
         print(f"Found {len(items)} search results")
-        return items , refined_query
+        return items, query
     except Exception as e:
         print(f"Error performing search: {e}")
         return None
 
-# Function to retrieve and clean the content of a web page with fallback logic
-def retrieve_content_with_fallback(url):
+def retrieve_content(url):
     print(f"Retrieving content from: {url}")
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -67,25 +61,18 @@ def retrieve_content_with_fallback(url):
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
-
         for script_or_style in soup(['script', 'style']):
             script_or_style.decompose()
-
         text = soup.get_text(separator=' ', strip=True)
         if len(text) > MAX_CONTENT_LENGTH:  
-            print(f"Skipping {url}: Content too large (size: {len(text)})")
             return None
 
-        print(f"Retrieved content from {url}, length: {len(text)}")
+        print(f"Retrieved content from {url}, length: {len(text)})")
         return text
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Failed to retrieve {url}: {e}")
         return None
-    except Exception as e:
-        print(f"Error processing {url}: {e}")
-        return None
 
-# Function to chunk long content
 def chunk_content(content, max_chunk_size=MAX_CHUNK_SIZE):
     print(f"Chunking content of length {len(content)}")
     words = content.split()
@@ -93,21 +80,16 @@ def chunk_content(content, max_chunk_size=MAX_CHUNK_SIZE):
         print(f"Creating chunk from {i} to {i + max_chunk_size}")
         yield ' '.join(words[i:i + max_chunk_size])
 
-# Function to summarize a chunk with optional context
 def summarize_chunk(chunk, search_term, context=None):
     print(f"Summarizing chunk of size: {len(chunk.split())} tokens")
     prompt = (
         f"You are an AI assistant tasked with summarizing content relevant to '{search_term}'. "
-        "If provided, use the previous summary as context. Please provide a concise summary in 500 tokens or less."
+        "If provided, use the previous summary as context. Provide a concise summary in 500 tokens or less."
     )
 
-    messages = [
-        {"role": "system", "content": prompt},
-    ]
-
+    messages = [{"role": "system", "content": prompt}]
     if context:
         messages.append({"role": "assistant", "content": context})
-
     messages.append({"role": "user", "content": chunk})
 
     try:
@@ -135,21 +117,16 @@ def summarize_content(content, search_term):
 
 def get_search_results_with_fallback(search_items, search_term):
     results_list = []
-
     for idx, item in enumerate(search_items, start=1):
         url = item.get('link')
         snippet = item.get('snippet', '')
-
         print(f"Processing search result {idx}: {url}")
-
-        web_content = retrieve_content_with_fallback(url)
-
+        web_content = retrieve_content(url)
         if web_content is None:
             print(f"Error: skipped URL: {url}")
             summary = f"[Fallback summary] {snippet or 'No snippet available.'}"
         else:
             summary = summarize_content(web_content, search_term)
-
         result_dict = {
             'order': idx,
             'link': url,
@@ -157,15 +134,13 @@ def get_search_results_with_fallback(search_items, search_term):
             'Summary': summary
         }
         results_list.append(result_dict)
-
     print(f"Processed {len(results_list)} search results")
     return results_list
 
 def generate_rag_response(search_results, search_query, search_term):
     final_prompt = (
-        f"The user will provide a dictionary of search results in JSON format for the search query '{search_term}'. "
-        f"Based on the search results provided by the user, provide a detailed response to this query: **'{search_query}'**. "
-        f"Make sure to cite all the sources at the end of your answer."
+        f"Based on the search results, provide a detailed response to this query: **'{search_query}'**. "
+        f"Ensure to extract the specific **'{search_term}'** data and present it in a structured format. along with citations to the resources used"
     )
     
     try:
@@ -177,33 +152,133 @@ def generate_rag_response(search_results, search_query, search_term):
             ],
             temperature=0  
         )
-        
         summary = response.choices[0].message.content
         print("Generated RAG Response:")
         print(summary)
         return summary
-    
     except Exception as e:
         print(f"An error occurred while generating the RAG response: {e}")
         return None
 
+def extract_financial_parameters(rag_response, search_term):
+    final_prompt = f"""
+    Given the following extracted data about **'{search_term}'**, analyze and return a single numerical value for **'{search_term}'**.
 
-# Main Program Execution
+    - If multiple values exist, provide a weighted or reasonable average.
+    - Ignore irrelevant values or textual noise.
+    - Ensure the output is a **single percentage or numerical value**.
+    
+    **Return the result as a valid JSON object** in the following format:
+
+    ```json
+    {{
+        "{search_term}": <calculated_value>
+    }}
+    ```
+
+    Ensure the response is **only** this JSON object and nothing else.
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": final_prompt},
+                {"role": "user", "content": rag_response}
+            ],
+            temperature=0  
+        )
+
+        if not response.choices or not response.choices[0].message.content.strip():
+            raise ValueError(f"Empty response received from GPT for {search_term}")
+
+        raw_response = response.choices[0].message.content.strip()
+        print(f"🔍 Raw GPT Response for {search_term}:\n{raw_response}")  
+
+        cleaned_response = re.sub(r"```json\s*(.*?)\s*```", r"\1", raw_response, flags=re.DOTALL)
+        cleaned_response = re.sub(r'(\d+),(\d+)', r'\1\2', cleaned_response)
+
+        try:
+            parameters = json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            print(f"JSON Decode Error: {e}")
+            print(f"Cleaned response received: {cleaned_response}")
+            return None
+
+        return parameters
+
+    except Exception as e:
+        print(f"Unexpected Error extracting {search_term}: {e}")
+        return None
+
+def calculate_BEI(market_share, investor_confidence, sales_data, min_sales=100000, max_sales=10000000):
+    market_share = market_share / 100
+    investor_confidence = investor_confidence / 100
+    
+    normalized_sales = (sales_data - min_sales) / (max_sales - min_sales)
+    normalized_sales = max(0, min(1, normalized_sales))  
+    
+    bei = ((market_share * 0.4) + (investor_confidence * 0.3) + (normalized_sales * 0.3)) 
+    return round(bei, 2)
+
+def execute_pipeline(company_name):
+    financial_parameters = ["Market Share", "Investor Confidence", "Sales Data"]
+    all_results = {}
+
+    for parameter in financial_parameters:
+        print(f"\n🔍 Searching for {parameter} data on {company_name}...\n")
+        search_results, refined_query = perform_search(company_name, parameter)
+
+        if not search_results:
+            print(f" No search results found for {parameter}. Skipping...")
+            continue
+
+        print(f"\n Extracting data from search results for {parameter}...\n")
+        summarized_results = get_search_results_with_fallback(search_results, refined_query)
+
+        print(f"\n Generating RAG response for {parameter}...\n")
+        rag_response = generate_rag_response(summarized_results, refined_query, parameter)
+
+        if not rag_response:
+            print(f" Failed to generate a RAG response for {parameter}. Skipping...")
+            continue
+
+        print(f"\n Extracting financial parameters for {parameter}...\n")
+        extracted_params = extract_financial_parameters(rag_response, parameter)
+
+        if not extracted_params:
+            print(f" Failed to extract financial parameters for {parameter}. Skipping...")
+            continue
+
+        all_results.update(extracted_params)    
+
+    if not all_results:
+        print(" No financial data could be extracted. Exiting...")
+        return None
+
+    print("\n Successfully extracted financial parameters:")
+    print(json.dumps(all_results, indent=4))
+
+    market_share = all_results.get("Market Share", 0)
+    investor_confidence = all_results.get("Investor Confidence", 0)
+    sales_data = all_results.get("Sales Data", 0)
+
+    print("\n Calculating Brand Equity Index (BEI)...\n")
+    bei_score = calculate_BEI(market_share, investor_confidence, sales_data)
+
+    print(f"\n Final Brand Equity Index (BEI) Score for {company_name}: {bei_score}/1\n")
+
+    return {
+        "Company": company_name,
+        "Financial Data": all_results,
+        "BEI Score": bei_score
+    }
+
 if __name__ == "__main__":
-    search_query = "Tata Motors latest financial report of the year 2024, please give me the latest quarter of 2024"
-    print("Starting program execution...")
- 
-    search_items , search_term = perform_search(search_query)
+    company = input("Enter the company name: ").strip()
+    result = execute_pipeline(company)
 
-    if search_items:
-        results = get_search_results_with_fallback(search_items, search_term)
-
-        if results:
-            rag_response = generate_rag_response(results, search_query, search_term)
-
-            with open("rag_response.txt", "w") as f:
-                f.write(rag_response)
-        else:
-            print("No search results to process.")
-    else:
-        print("No search results found.")
+    if result:
+        with open(f"{company}_financial_report.json", "w") as f:
+            json.dump(result, f, indent=4)
+        print(f"\n Report saved as {company}_financial_report.json")
