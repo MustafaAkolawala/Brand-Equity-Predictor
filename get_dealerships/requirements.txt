@@ -1,0 +1,6 @@
+firecrawl-py
+google-search-results
+langchain-anthropic
+serpapi
+langchain_community
+langchain-google-genai

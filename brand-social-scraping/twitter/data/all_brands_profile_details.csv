@@ -1,0 +1,6 @@
+core.name,core.screen_name,core.created_at,relationship_counts.followers,relationship_counts.following,tweet_counts.tweets,tweet_counts.media_tweets
+Audi USA,Audi,Mon Mar 30 14:54:50 +0000 2009,2029130,8410,31294,5562
+Volkswagen,VW,Wed Apr 01 18:49:05 +0000 2009,736974,35,36818,3566
+Maruti Suzuki,Maruti_Corp,Thu Nov 07 07:02:23 +0000 2013,206245,32,58431,2331
+Toyota USA,Toyota,Tue Mar 25 21:45:13 +0000 2008,951159,235,59997,6385
+Ford Motor Company,Ford,Thu Jul 31 16:07:55 +0000 2008,1504206,4,52290,15436
