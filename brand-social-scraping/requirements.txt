@@ -1,1 +1,2 @@
 apify_client
+selenium
