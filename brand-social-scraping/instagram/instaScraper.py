@@ -122,11 +122,11 @@ def pulling_comments(url,api_key):
 def get_post_urls(csv_file, brand_name, api_key):
     folder = f"brand-social-scraping/instagram/data/{brand_name}"
     os.makedirs(folder, exist_ok=True)
-    with open(csv_file, mode="r", encoding="utf-8") as f, open(f"brand-social-scraping/instagram/data/{brand_name}/comments_text.csv", mode="w", newline="", encoding="utf-8") as out_f:
+    with open(csv_file, mode="r", encoding="utf-8") as f, open(f"brand-social-scraping/instagram/data/{brand_name}/comments.csv", mode="w", newline="", encoding="utf-8") as out_f:
 
         reader = csv.DictReader(f)
-        writer = csv.writer(out_f)
-        writer.writerow(["commentText"])
+        # writer = csv.writer(out_f)
+        # writer.writerow(["commentText"])
 
         for row in reader:
             post_url = row["url"]
