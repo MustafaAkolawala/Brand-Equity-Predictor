@@ -163,7 +163,7 @@ class InstagramNoLoginScraper:
             print(f"Accessing post URL: {post_url}")
             time.sleep(5)
             self.handle_cookie_banner()
-            self.handle_login_prompt
+            self.handle_login_prompt()
             
             print("Attempting to scrape comments...")
             
