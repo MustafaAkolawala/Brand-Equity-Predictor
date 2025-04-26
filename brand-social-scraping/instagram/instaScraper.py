@@ -135,10 +135,3 @@ def get_post_urls(csv_file, brand_name, api_key):
                 
             # for comment in comment_texts:
             #     writer.writerow([comment]) 
-
-
-
-
-# items, fields, result_type, csv_file = get_details("https://www.instagram.com/tatamotorscars", "apify_api_SpjhH1ASpmwDW9aw12i5NiQn3m5Td81bUt1v","stories","tatamotors")
-# extract(items, fields, result_type, csv_file)
-# get_post_urls(f"brand-social-scraping/instagram/{brand_name}_post_urls.csv")
